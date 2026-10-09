@@ -108,6 +108,9 @@ net_down() {
 	net_release
 }
 
+# Associated is not the same as reachable: the lease lands seconds after the
+# join, and a caller acting on "up" before then fails on its first lookup. Only
+# an addressed interface answers up.
 net_status() {
 	if [ ! -f "$NET_CONF" ]; then
 		echo off
@@ -115,7 +118,13 @@ net_status() {
 	fi
 	state=$($WPA_CLI -p "$CTRL_DIR" -i wlan0 status 2>/dev/null | sed -n 's/^wpa_state=//p')
 	case "$state" in
-	COMPLETED) echo up ;;
+	COMPLETED)
+		if $IP addr show wlan0 2>/dev/null | grep -q 'inet '; then
+			echo up
+		else
+			echo joining
+		fi
+		;;
 	'') echo off ;;
 	*) echo joining ;;
 	esac
