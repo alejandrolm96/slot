@@ -201,6 +201,7 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             rewind: true,
             gb_palettes: false,
             gb_palette: GbPalette::DEFAULT,
+            wifi: true,
         }
     );
 }
@@ -401,4 +402,35 @@ fn a_missing_or_unknown_palette_falls_back_to_dmg_green() {
         assert!(!s.gb_palettes, "{bad:?} turned palettes on");
         assert_eq!(s.gb_palette, GbPalette::DEFAULT, "{bad:?}");
     }
+}
+
+#[test]
+fn the_wifi_setting_round_trips() {
+    let d = tmp_root();
+    for on in [true, false] {
+        let s = SlotState {
+            wifi: on,
+            ..Default::default()
+        };
+        write_slot_state(d.path(), &s).unwrap();
+        assert_eq!(read_slot_state(d.path()).wifi, on);
+    }
+}
+
+#[test]
+fn a_state_written_before_wifi_existed_reads_as_joined() {
+    let d = tmp_root();
+    write_slot_state(d.path(), &SlotState::default()).unwrap();
+    let path = d.path().join("Config/slot.state");
+    let older: String = std::fs::read_to_string(&path)
+        .unwrap()
+        .lines()
+        .filter(|l| !l.starts_with("wifi="))
+        .map(|l| format!("{l}\n"))
+        .collect();
+    std::fs::write(&path, older).unwrap();
+    assert!(
+        read_slot_state(d.path()).wifi,
+        "a card from before the setting existed must still come up joined"
+    );
 }
