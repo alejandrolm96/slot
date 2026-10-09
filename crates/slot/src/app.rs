@@ -27,6 +27,7 @@ use crate::link_screen::LinkSprites;
 use crate::link_start::{link_port, LinkFail, LinkProgress, LinkStarter, LinkStep};
 use crate::persist::{self, Snapshot};
 use crate::video_mode::{self, VideoMode};
+use crate::wifi::{wifi_jobs, WifiJob, WifiJobs};
 
 pub const INSERT_S: f32 = 0.73;
 const INSERT_HOLD_S: f32 = 0.28;
@@ -341,6 +342,8 @@ pub struct App {
     last_led: Option<LedState>,
     powering_off: bool,
     radio: Box<dyn RadioJobs>,
+    wifi: Box<dyn WifiJobs>,
+    wifi_joined: Option<bool>,
 }
 
 const FACE_AHEAD: i32 = 8;
@@ -375,6 +378,8 @@ impl App {
             .unwrap_or(0);
         App {
             radio: radio_jobs(),
+            wifi: wifi_jobs(),
+            wifi_joined: None,
             phase: Phase::Shelf,
             shelves,
             shelf_at,
@@ -1586,6 +1591,7 @@ impl App {
 
     pub fn update(&mut self, dt: f32) {
         self.clock += dt as f64 * 1000.0;
+        self.sync_wifi();
         if self.name_pending && self.shelf_platform.face.is_some() {
             self.name_pending = false;
             self.shelf_named = Some(self.now());
@@ -2689,6 +2695,26 @@ impl App {
 
     pub fn set_radio_jobs(&mut self, jobs: Box<dyn RadioJobs>) {
         self.radio = jobs;
+    }
+
+    pub fn set_wifi_jobs(&mut self, jobs: Box<dyn WifiJobs>) {
+        self.wifi = jobs;
+        self.wifi_joined = None;
+    }
+
+    // wlan0 and wlan1 are one radio. The cable takes it for the length of a
+    // link, a shut lid leaves it to nobody, and the card's own setting decides
+    // the rest. Asking only on a change keeps a per-frame call from spawning a
+    // process a frame.
+    fn sync_wifi(&mut self) {
+        let want =
+            self.state.wifi && !matches!(self.phase, Phase::Doze { .. }) && !self.link_active();
+        if self.wifi_joined == Some(want) {
+            return;
+        }
+        self.wifi_joined = Some(want);
+        self.wifi
+            .ask(if want { WifiJob::Up } else { WifiJob::Down });
     }
 
     fn game_menu_input(&mut self, action: Action) {
