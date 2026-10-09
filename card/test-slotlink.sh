@@ -51,6 +51,7 @@ run() {
 		AGS_WPA_SUPPLICANT="$TMP/bin/wpa_supplicant" AGS_WPA_CLI="$TMP/bin/wpa_cli" \
 		AGS_IP="$TMP/bin/ip" AGS_INSMOD="$TMP/bin/insmod" \
 		AGS_UDHCPC="$TMP/bin/udhcpc" AGS_WIFI_FILE="$TMP/card/Config/wifi.txt" \
+		AGS_NET_LIB="${LIB:-$HERE/System/slotnet.sh}" \
 		AGS_LINK_WAIT_S="${WAIT_S:-1}" AGS_LINK_PIN_WAIT_S="${WAIT_S:-1}" \
 		AGS_NET_WAIT_S="${WAIT_S:-1}" \
 		sh "$SCRIPT" "$@"
@@ -192,16 +193,35 @@ run absent net up >/dev/null
 run absent net status > "$TMP/status.log"
 grep -Fqx up "$TMP/status.log" || fail "status after a lease is not up"
 
-# One radio: a link session must take wlan0 back from the home network.
-reset yes
-creds Home secret
-run absent net up >/dev/null
-run absent link join >/dev/null 2>&1 || true
-[ -e "$TMP/run/slotnet.conf" ] && fail "link join left the Wi-Fi session running"
+# One radio: every link verb takes wlan0 back from the home network. The
+# release happens in the dispatcher, so link_clear stays as upstream wrote it.
+for verb in host join down; do
+	reset yes
+	creds Home secret
+	run absent net up >/dev/null
+	[ -f "$TMP/run/slotnet.conf" ] || fail "net up left no session to release"
+	: > "$TMP/ip.log"
+	run absent link "$verb" >/dev/null 2>&1 || true
+	[ -e "$TMP/run/slotnet.conf" ] && fail "link $verb left the Wi-Fi session running"
+	grep -q 'addr flush dev wlan0' "$TMP/ip.log" || fail "link $verb never released wlan0"
+done
 
 reset yes
 run absent net sideways 2>/dev/null && rc=0 || rc=$?
 [ "$rc" = 2 ] || fail "bad net verb exited $rc, want 2"
+
+# The net verbs live in a second file. Losing it costs those verbs and
+# nothing else: the link cable is still a link cable.
+reset yes
+creds Home secret
+export LIB="$TMP/absent-slotnet.sh"
+run absent net up 2>"$TMP/err.log" && rc=0 || rc=$?
+[ "$rc" = 1 ] || fail "net up without slotnet.sh exited $rc, want 1"
+grep -q 'is missing' "$TMP/err.log" || fail "net up without slotnet.sh said nothing useful"
+[ -e "$TMP/sup.log" ] && fail "net up without slotnet.sh still started a supplicant"
+run absent link host >/dev/null && rc=0 || rc=$?
+unset LIB
+[ "$rc" = 0 ] || fail "link host without slotnet.sh exited $rc"
 
 if [ "$FAILS" -eq 0 ]; then
 	echo "slotlink: all passed"
