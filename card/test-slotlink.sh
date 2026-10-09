@@ -128,12 +128,25 @@ grep -Fq 'key_mgmt=WPA-PSK' "$TMP/run/slotnet.conf" || fail "net up is not WPA-P
 grep -q -- '-i wlan0' "$TMP/sup.log" || fail "net up started no supplicant on wlan0"
 grep -q -- '-i wlan0' "$TMP/dhcp.log" || fail "net up asked for no lease"
 
-# A psk is a value, not a comment: ini only treats a leading # as one.
+# A psk is a value, never syntax. Nothing the shell or ini treats as special
+# may be eaten on the way to the config, and wpa_supplicant takes the last
+# quote on the line, so even a quote survives the round trip.
+for psk in 'ab#cd*ef' 'back\slash' 'dollar$HOME' 'back`tick`' "single'quote" \
+	'double"quote"in' 'spaces in it' 'equals=sign' 'semi;colon' 'bracket[s]'; do
+	reset yes
+	creds Home "$psk"
+	run absent net up >/dev/null 2>&1 && rc=0 || rc=$?
+	[ "$rc" = 0 ] || fail "net up with the psk [$psk] exited $rc"
+	got=$(sed -n 's/^	psk="\(.*\)"$/\1/p' "$TMP/run/slotnet.conf")
+	[ "$got" = "$psk" ] || fail "the psk [$psk] reached the config as [$got]"
+done
+
+# An ssid is a value too, and keeps the spaces inside it.
 reset yes
-creds Home 'ab#cd*ef'
+creds 'My Home 5G' secret
 run absent net up >/dev/null && rc=0 || rc=$?
-[ "$rc" = 0 ] || fail "net up with a punctuated psk exited $rc"
-grep -Fq 'psk="ab#cd*ef"' "$TMP/run/slotnet.conf" || fail "the psk lost its # or *"
+[ "$rc" = 0 ] || fail "net up with a spaced ssid exited $rc"
+grep -Fq 'ssid="My Home 5G"' "$TMP/run/slotnet.conf" || fail "the ssid lost its spaces"
 
 reset yes
 printf '# home\n\nssid = Home\n; aside\npsk = secret\n' > "$TMP/card/Config/wifi.txt"
