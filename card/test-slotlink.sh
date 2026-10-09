@@ -37,7 +37,8 @@ reset() {
 	fi
 	make_fake wpa_cli "$TMP/cli.log" 'echo "wpa_state=${FAKE_STATE:-COMPLETED}"'
 	make_fake wpa_supplicant "$TMP/sup.log"
-	make_fake ip "$TMP/ip.log"
+	make_fake ip "$TMP/ip.log" \
+		'case "$*" in *"addr show"*) [ -z "${FAKE_ADDR:-}" ] || echo "    inet ${FAKE_ADDR}/24 scope global wlan0" ;; esac'
 	make_fake insmod "$TMP/mod.log"
 	make_fake legacy "$TMP/legacy.log"
 	make_fake udhcpc "$TMP/dhcp.log"
@@ -187,11 +188,21 @@ reset yes
 run absent net status > "$TMP/status.log"
 grep -Fqx off "$TMP/status.log" || fail "status with no session is not off"
 
+# Associated is not the same as reachable. DHCP takes seconds after the join,
+# and anything acting on "up" before the address lands fails on a name lookup.
 reset yes
 creds Home secret
 run absent net up >/dev/null
 run absent net status > "$TMP/status.log"
-grep -Fqx up "$TMP/status.log" || fail "status after a lease is not up"
+grep -Fqx joining "$TMP/status.log" || fail "an associated card with no address is not joining"
+
+reset yes
+creds Home secret
+run absent net up >/dev/null
+export FAKE_ADDR=192.168.1.50
+run absent net status > "$TMP/status.log"
+unset FAKE_ADDR
+grep -Fqx up "$TMP/status.log" || fail "an addressed card is not up"
 
 # One radio: every link verb takes wlan0 back from the home network. The
 # release happens in the dispatcher, so link_clear stays as upstream wrote it.
