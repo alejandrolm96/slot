@@ -26,8 +26,9 @@ make_fake() {
 }
 
 reset() {
-	rm -rf "$TMP/net" "$TMP/run" "$TMP/ctrl" "$TMP"/*.log "$TMP/bin"
-	mkdir -p "$TMP/net/wlan0" "$TMP/net/wlan1" "$TMP/run" "$TMP/ctrl" "$TMP/modules" "$TMP/bin"
+	rm -rf "$TMP/net" "$TMP/run" "$TMP/ctrl" "$TMP"/*.log "$TMP/bin" "$TMP/card"
+	mkdir -p "$TMP/net/wlan0" "$TMP/net/wlan1" "$TMP/run" "$TMP/ctrl" "$TMP/modules" "$TMP/bin" \
+		"$TMP/card/Config"
 	: > "$TMP/modules/8821cs.ko"
 	if [ "$1" = yes ]; then
 		echo "8821cs 2863104 0 - Live 0x0" > "$TMP/proc-modules"
@@ -39,6 +40,7 @@ reset() {
 	make_fake ip "$TMP/ip.log"
 	make_fake insmod "$TMP/mod.log"
 	make_fake legacy "$TMP/legacy.log"
+	make_fake udhcpc "$TMP/dhcp.log"
 }
 
 run() {
@@ -48,7 +50,9 @@ run() {
 		AGS_CTRL_DIR="$TMP/ctrl" AGS_PROC_MODULES="$TMP/proc-modules" \
 		AGS_WPA_SUPPLICANT="$TMP/bin/wpa_supplicant" AGS_WPA_CLI="$TMP/bin/wpa_cli" \
 		AGS_IP="$TMP/bin/ip" AGS_INSMOD="$TMP/bin/insmod" \
+		AGS_UDHCPC="$TMP/bin/udhcpc" AGS_WIFI_FILE="$TMP/card/Config/wifi.txt" \
 		AGS_LINK_WAIT_S="${WAIT_S:-1}" AGS_LINK_PIN_WAIT_S="${WAIT_S:-1}" \
+		AGS_NET_WAIT_S="${WAIT_S:-1}" \
 		sh "$SCRIPT" "$@"
 }
 
@@ -109,6 +113,82 @@ t1=$(date +%s)
 reset yes
 run absent link sideways 2>/dev/null && rc=0 || rc=$?
 [ "$rc" = 2 ] || fail "bad verb exited $rc, want 2"
+
+creds() {
+	printf 'ssid = %s\npsk = %s\n' "$1" "$2" > "$TMP/card/Config/wifi.txt"
+}
+
+reset yes
+creds Home secret
+run absent net up && rc=0 || rc=$?
+[ "$rc" = 0 ] || fail "net up exited $rc"
+grep -Fq 'ssid="Home"' "$TMP/run/slotnet.conf" || fail "net up lost the ssid"
+grep -Fq 'psk="secret"' "$TMP/run/slotnet.conf" || fail "net up lost the psk"
+grep -Fq 'key_mgmt=WPA-PSK' "$TMP/run/slotnet.conf" || fail "net up is not WPA-PSK"
+grep -q -- '-i wlan0' "$TMP/sup.log" || fail "net up started no supplicant on wlan0"
+grep -q -- '-i wlan0' "$TMP/dhcp.log" || fail "net up asked for no lease"
+
+# A psk is a value, not a comment: ini only treats a leading # as one.
+reset yes
+creds Home 'ab#cd*ef'
+run absent net up >/dev/null && rc=0 || rc=$?
+[ "$rc" = 0 ] || fail "net up with a punctuated psk exited $rc"
+grep -Fq 'psk="ab#cd*ef"' "$TMP/run/slotnet.conf" || fail "the psk lost its # or *"
+
+reset yes
+printf '# home\n\nssid = Home\n; aside\npsk = secret\n' > "$TMP/card/Config/wifi.txt"
+run absent net up >/dev/null && rc=0 || rc=$?
+[ "$rc" = 0 ] || fail "net up with comments exited $rc"
+grep -Fq 'ssid="Home"' "$TMP/run/slotnet.conf" || fail "a comment line confused the reader"
+
+reset yes
+creds Open ''
+run absent net up >/dev/null && rc=0 || rc=$?
+[ "$rc" = 0 ] || fail "net up on an open network exited $rc"
+grep -Fq 'key_mgmt=NONE' "$TMP/run/slotnet.conf" || fail "an open network asked for a psk"
+
+reset yes
+run absent net up 2>/dev/null && rc=0 || rc=$?
+[ "$rc" = 4 ] || fail "net up with no credentials exited $rc, want 4"
+[ -e "$TMP/sup.log" ] && fail "net up started a supplicant with no credentials"
+[ -e "$TMP/dhcp.log" ] && fail "net up asked for a lease with no credentials"
+
+reset yes
+creds Home secret
+export FAKE_STATE=SCANNING
+run absent net up >/dev/null 2>&1 && rc=0 || rc=$?
+unset FAKE_STATE
+[ "$rc" = 3 ] || fail "net up that never associates exited $rc, want 3"
+[ -e "$TMP/dhcp.log" ] && fail "net up leased without associating"
+
+reset yes
+creds Home secret
+run absent net up >/dev/null
+run absent net down && rc=0 || rc=$?
+[ "$rc" = 0 ] || fail "net down exited $rc"
+[ -e "$TMP/run/slotnet.conf" ] && fail "net down left the conf behind"
+grep -q 'addr flush dev wlan0' "$TMP/ip.log" || fail "net down did not clear wlan0"
+
+reset yes
+run absent net status > "$TMP/status.log"
+grep -Fqx off "$TMP/status.log" || fail "status with no session is not off"
+
+reset yes
+creds Home secret
+run absent net up >/dev/null
+run absent net status > "$TMP/status.log"
+grep -Fqx up "$TMP/status.log" || fail "status after a lease is not up"
+
+# One radio: a link session must take wlan0 back from the home network.
+reset yes
+creds Home secret
+run absent net up >/dev/null
+run absent link join >/dev/null 2>&1 || true
+[ -e "$TMP/run/slotnet.conf" ] && fail "link join left the Wi-Fi session running"
+
+reset yes
+run absent net sideways 2>/dev/null && rc=0 || rc=$?
+[ "$rc" = 2 ] || fail "bad net verb exited $rc, want 2"
 
 if [ "$FAILS" -eq 0 ]; then
 	echo "slotlink: all passed"
