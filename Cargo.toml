@@ -23,6 +23,7 @@ tempfile = "3"
 unicode-normalization = "0.1"
 resvg = { version = "0.48", default-features = false }
 usvg = { version = "0.48", default-features = false }
+cc = "1.2"
 
 [profile.device]
 inherits = "release"

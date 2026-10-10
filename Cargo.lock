@@ -1881,6 +1881,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "slot-cheevos"
+version = "0.1.0"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "slot-gfx"
 version = "0.1.0"
 dependencies = [
