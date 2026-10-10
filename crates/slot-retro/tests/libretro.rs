@@ -141,3 +141,34 @@ fn the_bios_intro_plays_when_a_bios_is_present() {
         "{lit} of {all} pixels are lit: the rom is already painting and the intro was skipped"
     );
 }
+
+mod memory_map {
+    use slot_retro::{MemoryRegion, MockCore, RetroCore};
+
+    #[test]
+    fn a_core_that_described_nothing_has_no_regions() {
+        assert!(
+            MockCore::default().memory_regions().is_empty(),
+            "a region list conjured from nowhere would be read as real memory"
+        );
+    }
+
+    #[test]
+    fn a_region_carries_every_field_the_core_set() {
+        // Everything matters: start and len place it, select and disconnect
+        // decode mirrored addresses, offset shifts into the core's buffer, and
+        // flags say whether it can be written.
+        let r = MemoryRegion {
+            flags: 0x3,
+            offset: 16,
+            start: 0x0300_0000,
+            select: 0xFF00_0000,
+            disconnect: 0x00FF_0000,
+            len: 0x8000,
+        };
+        let copy = r;
+        assert_eq!(copy, r);
+        assert_eq!(copy.len, 0x8000);
+        assert_eq!(copy.select, 0xFF00_0000);
+    }
+}

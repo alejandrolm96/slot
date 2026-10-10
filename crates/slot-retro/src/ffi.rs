@@ -18,6 +18,13 @@ pub const GET_SAVE_DIRECTORY: c_uint = 31;
 pub const SET_AUDIO_BUFFER_STATUS_CALLBACK: c_uint = 62;
 pub const SET_NETPACKET_INTERFACE: c_uint = 78;
 
+// Both of these are experimental commands, so the number on the wire is the
+// documented one OR 0x10000. Writing the bare 36 here would mean the handler
+// never fires and the map never arrives, with nothing to show why.
+pub const EXPERIMENTAL: c_uint = 0x10000;
+pub const SET_MEMORY_MAPS: c_uint = 36 | EXPERIMENTAL;
+pub const SET_SUPPORT_ACHIEVEMENTS: c_uint = 42 | EXPERIMENTAL;
+
 pub const RUMBLE_STRONG: c_uint = 0;
 pub const RUMBLE_WEAK: c_uint = 1;
 
@@ -32,6 +39,27 @@ pub const NETPACKET_RELIABLE: i32 = 1 << 0;
 pub const NETPACKET_UNSEQUENCED: i32 = 1 << 1;
 pub const NETPACKET_FLUSH_HINT: i32 = 1 << 2;
 pub const NETPACKET_BROADCAST: u16 = 0xFFFF;
+
+/// Mirrors `struct retro_memory_descriptor`. The field order is the ABI, so
+/// nothing here may be reordered.
+#[repr(C)]
+pub struct MemoryDescriptor {
+    pub flags: u64,
+    pub ptr: *mut c_void,
+    pub offset: usize,
+    pub start: usize,
+    pub select: usize,
+    pub disconnect: usize,
+    pub len: usize,
+    pub addrspace: *const c_char,
+}
+
+/// Mirrors `struct retro_memory_map`.
+#[repr(C)]
+pub struct MemoryMap {
+    pub descriptors: *const MemoryDescriptor,
+    pub num_descriptors: c_uint,
+}
 
 #[repr(C)]
 pub struct GameInfo {

@@ -42,6 +42,24 @@ impl ButtonMask {
     }
 }
 
+/// One range of the emulated machine's address space, as the core described
+/// it. The pointer the core gave alongside this stays inside the crate: it
+/// points into the core's own memory and is only good while that core lives.
+///
+/// Decoding an address needs all of these, so none is dropped on the way
+/// through: `start` and `len` place the range, `select` says which bits of an
+/// address must match it, `disconnect` says which are not wired at all, and
+/// `offset` shifts into the core's buffer.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub struct MemoryRegion {
+    pub flags: u64,
+    pub offset: usize,
+    pub start: usize,
+    pub select: usize,
+    pub disconnect: usize,
+    pub len: usize,
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct AvInfo {
     pub fps: f64,
@@ -96,6 +114,22 @@ pub trait RetroCore: Send {
     fn net(&self) -> Link {
         Link::default()
     }
+    /// What the core said about its address space, empty when it said
+    /// nothing. Achievements are decided against this memory, so a core that
+    /// describes none can carry none.
+    ///
+    /// A core may not have described anything yet when it is merely loaded.
+    /// mGBA defers its own setup to the first `retro_run`, so ask after a
+    /// frame has gone through, never straight after `load`.
+    fn memory_regions(&self) -> Vec<MemoryRegion> {
+        Vec::new()
+    }
+
+    /// Whether the core declared that it supports achievements.
+    fn supports_achievements(&self) -> bool {
+        false
+    }
+
     fn start_link(&mut self, _client_id: u16) {}
     fn pump_link(&mut self) {}
     fn stop_link(&mut self) {}
