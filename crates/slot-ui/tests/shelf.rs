@@ -476,6 +476,7 @@ fn the_gauge_starts_at_the_case_margin() {
         Printed { face: None, w: 30 },
         Some(TexId::from_raw(1)),
         Printed { face: None, w: 40 },
+        None,
         &mut out,
     );
     let leftmost = out
@@ -499,6 +500,7 @@ fn the_band_prints_the_charge_at_one_margin_and_the_clock_at_the_other() {
         Printed { face: None, w: 30 },
         Some(TexId::from_raw(1)),
         Printed { face: None, w: 40 },
+        None,
         &mut out,
     );
     let xs: Vec<(f32, f32)> = out
@@ -546,6 +548,7 @@ fn the_footer_does_not_move_the_gauge_when_the_charge_state_changes() {
         Printed { face: None, w: 30 },
         None,
         Printed { face: None, w: 40 },
+        None,
         &mut idle,
     );
     let mut charging = Vec::new();
@@ -557,6 +560,7 @@ fn the_footer_does_not_move_the_gauge_when_the_charge_state_changes() {
         Printed { face: None, w: 30 },
         Some(TexId::from_raw(2)),
         Printed { face: None, w: 40 },
+        None,
         &mut charging,
     );
     for d in &idle {
@@ -575,6 +579,7 @@ fn the_clock_stays_at_the_right_margin() {
         Printed::default(),
         None,
         Printed { face: None, w: 40 },
+        None,
         &mut out,
     );
     let rightmost = out
@@ -595,6 +600,7 @@ fn a_band_with_no_gauge_still_draws_its_clock() {
         Printed::default(),
         None,
         Printed { face: None, w: 40 },
+        None,
         &mut out,
     );
     assert_eq!(out.len(), 1);

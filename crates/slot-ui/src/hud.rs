@@ -34,6 +34,53 @@ pub(crate) const FILL: [f32; 4] = [
     1.0,
 ];
 
+/// How much of the home network the card has: nothing, a join in progress, or
+/// an address it can actually use.
+#[derive(Copy, Clone, Default, PartialEq, Eq, Debug)]
+pub enum WifiState {
+    #[default]
+    Off,
+    Joining,
+    Up,
+}
+
+impl WifiState {
+    pub const ALL: [WifiState; 3] = [WifiState::Off, WifiState::Joining, WifiState::Up];
+
+    pub fn index(self) -> usize {
+        self as usize
+    }
+
+    /// The worker keeps this in an atomic, so it travels as a number. An
+    /// unknown one means off rather than a panic: a torn read must not take
+    /// the frontend down.
+    pub fn from_index(i: usize) -> WifiState {
+        Self::ALL.get(i).copied().unwrap_or(WifiState::Off)
+    }
+}
+
+/// One breath of the joining icon. Long enough to read as work rather than as
+/// an alarm, short enough to cycle a few times over the seven seconds a join
+/// takes.
+pub const PULSE_MS: Millis = 1200;
+
+const PULSE_DIM: f32 = 0.3;
+
+/// The alpha to draw the Wi-Fi icon at, or None when there is nothing to draw.
+/// Joining sweeps between dim and full rather than blinking: a hard edge reads
+/// as something being wrong, and nothing is wrong, it is just not ready.
+pub fn wifi_alpha(state: WifiState, now: Millis) -> Option<f32> {
+    match state {
+        WifiState::Off => None,
+        WifiState::Up => Some(1.0),
+        WifiState::Joining => {
+            let turn = (now % PULSE_MS) as f32 / PULSE_MS as f32;
+            let sweep = 0.5 - 0.5 * (turn * std::f32::consts::TAU).cos();
+            Some(PULSE_DIM + (1.0 - PULSE_DIM) * sweep)
+        }
+    }
+}
+
 #[derive(Copy, Clone, Default, PartialEq, Eq, Debug)]
 pub enum HudKind {
     #[default]
@@ -139,6 +186,7 @@ pub struct Hud {
     toasts: Vec<TexId>,
     link: LinkBadge,
     link_faces: Vec<TexId>,
+    wifi: WifiState,
 }
 
 impl Hud {
@@ -146,8 +194,17 @@ impl Hud {
         Self::default()
     }
 
+    pub fn set_wifi(&mut self, state: WifiState) {
+        self.wifi = state;
+    }
+
     pub fn set_icons(&mut self, icons: Vec<TexId>) {
         self.icons = icons;
+    }
+
+    /// The uploaded face for one icon, for callers that draw outside the plate.
+    pub fn face(&self, icon: Icon) -> Option<TexId> {
+        self.icons.get(icon.index()).copied()
     }
 
     pub fn set_toasts(&mut self, toasts: Vec<TexId>) {
@@ -238,7 +295,20 @@ impl Hud {
             .and_then(|i| self.link_faces.get(i).copied());
         let ff = ff_badge(self.ff).and_then(|i| self.icons.get(i.index()).copied());
         if let Some(tex) = link.or(ff) {
-            self.place_badge(tex, out);
+            self.place_badge(tex, 1.0, out);
+            return;
+        }
+        // Only a join is worth saying over a game. A settled network is the
+        // ordinary state and an off one was asked for, so neither earns pixels
+        // in front of what the player is doing.
+        if self.wifi != WifiState::Joining {
+            return;
+        }
+        if let (Some(tex), Some(alpha)) = (
+            self.icons.get(Icon::Wifi.index()).copied(),
+            wifi_alpha(self.wifi, now),
+        ) {
+            self.place_badge(tex, alpha, out);
         }
     }
 
@@ -271,7 +341,7 @@ impl Hud {
         });
     }
 
-    fn place_badge(&self, tex: TexId, out: &mut Vec<Draw>) {
+    fn place_badge(&self, tex: TexId, alpha: f32, out: &mut Vec<Draw>) {
         let (w, h) = icon_box(HUD_ICON_PX);
         let (w, h) = (w as f32, h as f32);
         let (x, y) = badge_at(w, h);
@@ -281,7 +351,7 @@ impl Hud {
             w,
             h,
             tex,
-            alpha: 1.0,
+            alpha,
         });
     }
 

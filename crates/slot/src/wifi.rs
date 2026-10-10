@@ -5,11 +5,15 @@
 //! only ever posts a job to it.
 
 #[cfg(feature = "device")]
+use std::sync::atomic::{AtomicUsize, Ordering};
+#[cfg(feature = "device")]
 use std::sync::mpsc::{channel, Sender};
 #[cfg(feature = "device")]
 use std::sync::OnceLock;
 #[cfg(any(feature = "device", test))]
 use std::{path::Path, process::Command};
+
+use slot_ui::WifiState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WifiJob {
@@ -28,6 +32,10 @@ impl WifiJob {
 
 pub trait WifiJobs: Send {
     fn ask(&mut self, job: WifiJob);
+
+    /// What the worker is on right now. Read every frame, so it must stay a
+    /// load rather than anything that talks to the card.
+    fn state(&self) -> WifiState;
 }
 
 pub struct WifiQueue;
@@ -37,9 +45,16 @@ pub fn wifi_jobs() -> Box<dyn WifiJobs> {
 }
 
 #[cfg(feature = "device")]
+static STATE: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(feature = "device")]
 impl WifiJobs for WifiQueue {
     fn ask(&mut self, job: WifiJob) {
         let _ = queue().send(job);
+    }
+
+    fn state(&self) -> WifiState {
+        WifiState::from_index(STATE.load(Ordering::Relaxed))
     }
 }
 
@@ -68,19 +83,42 @@ fn net_command(root: &Path, verb: &str) -> Command {
     cmd
 }
 
+// The worker reports its own progress rather than polling the card: joining
+// lasts as long as the script takes, and the answer afterwards is whether the
+// script got an address. A network lost to something else is not noticed until
+// the next job, which is a cheap trade for not running a process a second.
 #[cfg(feature = "device")]
 fn run(job: WifiJob) {
-    let root = std::env::var_os("SLOT_ROOT").unwrap_or_else(|| "/mnt/sdcard".into());
-    match net_command(Path::new(&root), job.verb()).status() {
-        Ok(status) if status.success() => {}
-        Ok(status) => eprintln!("slot: wifi: net {} ended {status}", job.verb()),
-        Err(e) => eprintln!("slot: wifi: net {} would not start: {e}", job.verb()),
+    let settle = |state: WifiState| STATE.store(state.index(), Ordering::Relaxed);
+    if job == WifiJob::Up {
+        settle(WifiState::Joining);
     }
+    let root = std::env::var_os("SLOT_ROOT").unwrap_or_else(|| "/mnt/sdcard".into());
+    let reached = match net_command(Path::new(&root), job.verb()).status() {
+        Ok(status) if status.success() => true,
+        Ok(status) => {
+            eprintln!("slot: wifi: net {} ended {status}", job.verb());
+            false
+        }
+        Err(e) => {
+            eprintln!("slot: wifi: net {} would not start: {e}", job.verb());
+            false
+        }
+    };
+    settle(if reached && job == WifiJob::Up {
+        WifiState::Up
+    } else {
+        WifiState::Off
+    });
 }
 
 #[cfg(not(feature = "device"))]
 impl WifiJobs for WifiQueue {
     fn ask(&mut self, _job: WifiJob) {}
+
+    fn state(&self) -> WifiState {
+        WifiState::Off
+    }
 }
 
 #[cfg(test)]
