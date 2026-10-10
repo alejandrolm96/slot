@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use libloading::Library;
 
-use crate::core::{AvInfo, ButtonMask, CoreError, RetroCore, GBA_H, GBA_W};
+use crate::core::{AvInfo, ButtonMask, CoreError, MemoryRegion, RetroCore, GBA_H, GBA_W};
 use crate::ffi::*;
 use crate::link::Link;
 use crate::rumble::Rumble;
@@ -38,6 +38,8 @@ struct Host {
     options: std::collections::HashMap<String, std::ffi::CString>,
     options_dirty: bool,
     declared: std::collections::HashMap<String, Vec<String>>,
+    memory: Vec<MemoryRegion>,
+    achievements: bool,
 }
 
 thread_local! {
@@ -209,6 +211,34 @@ unsafe extern "C" fn environment(cmd: c_uint, data: *mut c_void) -> bool {
                 h.netpacket = Some(std::ptr::read(data as *const NetpacketCallback));
             })
             .is_some()
+        }
+        SET_MEMORY_MAPS => {
+            if data.is_null() {
+                return with_host(|h| h.memory.clear()).is_some();
+            }
+            let map = &*(data as *const MemoryMap);
+            if map.descriptors.is_null() {
+                return with_host(|h| h.memory.clear()).is_some();
+            }
+            let mut regions = Vec::with_capacity(map.num_descriptors as usize);
+            for i in 0..map.num_descriptors as usize {
+                let d = &*map.descriptors.add(i);
+                regions.push(MemoryRegion {
+                    flags: d.flags,
+                    offset: d.offset,
+                    start: d.start,
+                    select: d.select,
+                    disconnect: d.disconnect,
+                    len: d.len,
+                });
+            }
+            with_host(|h| h.memory = regions).is_some()
+        }
+        SET_SUPPORT_ACHIEVEMENTS => {
+            // The core volunteers this; answering false would be telling it we
+            // cannot, which is not what we mean.
+            let on = data.is_null() || *(data as *const bool);
+            with_host(|h| h.achievements = on).is_some()
         }
         _ => false,
     }
@@ -484,6 +514,8 @@ impl LibretroCore {
             options: std::collections::HashMap::new(),
             options_dirty: false,
             declared: std::collections::HashMap::new(),
+            memory: Vec::new(),
+            achievements: false,
         });
         unsafe {
             let _a = Active::bind(&mut host);
@@ -643,6 +675,14 @@ impl RetroCore for LibretroCore {
         Ok(())
     }
 
+    fn memory_regions(&self) -> Vec<MemoryRegion> {
+        self.host.memory.clone()
+    }
+
+    fn supports_achievements(&self) -> bool {
+        self.host.achievements
+    }
+
     fn av_info(&self) -> AvInfo {
         self.av
     }
@@ -695,6 +735,8 @@ mod tests {
             options,
             options_dirty,
             declared: HashMap::new(),
+            memory: Vec::new(),
+            achievements: false,
         })
     }
 
@@ -1615,6 +1657,111 @@ mod tests {
         };
 
         assert_eq!(unsafe { with_host(|h| h.video.clone()) }.unwrap(), frame);
+    }
+
+    #[test]
+    fn the_memory_commands_carry_their_experimental_bit() {
+        // The documented numbers are 36 and 42, but both are experimental, so
+        // the number a core actually sends is OR 0x10000. Handling the bare
+        // number means never hearing from the core and having nothing to show
+        // for it.
+        assert_eq!(SET_MEMORY_MAPS, 0x10024);
+        assert_eq!(SET_SUPPORT_ACHIEVEMENTS, 0x1002A);
+    }
+
+    #[test]
+    fn the_frontend_keeps_every_field_of_the_map_a_core_describes() {
+        let mut host = host_with(HashMap::new(), false);
+        let _active = Active::bind(&mut host);
+
+        let mut iwram = [0u8; 64];
+        let mut ewram = [0u8; 32];
+        let descs = [
+            MemoryDescriptor {
+                flags: 2,
+                ptr: iwram.as_mut_ptr() as *mut c_void,
+                offset: 0,
+                start: 0x0300_0000,
+                select: 0xFF00_0000,
+                disconnect: 0,
+                len: 64,
+                addrspace: ptr::null(),
+            },
+            MemoryDescriptor {
+                flags: 2,
+                ptr: ewram.as_mut_ptr() as *mut c_void,
+                offset: 8,
+                start: 0x0200_0000,
+                select: 0xFF00_0000,
+                disconnect: 0x00FF_0000,
+                len: 32,
+                addrspace: ptr::null(),
+            },
+        ];
+        let map = MemoryMap {
+            descriptors: descs.as_ptr(),
+            num_descriptors: 2,
+        };
+
+        let ok = unsafe { environment(SET_MEMORY_MAPS, &map as *const MemoryMap as *mut c_void) };
+        assert!(ok, "the core described its memory and was ignored");
+
+        let got = unsafe { with_host(|h| h.memory.clone()) }.unwrap();
+        assert_eq!(got.len(), 2, "descriptors went missing: {got:?}");
+        assert_eq!(
+            got[0],
+            MemoryRegion {
+                flags: 2,
+                offset: 0,
+                start: 0x0300_0000,
+                select: 0xFF00_0000,
+                disconnect: 0,
+                len: 64,
+            }
+        );
+        assert_eq!(
+            got[1].disconnect, 0x00FF_0000,
+            "disconnect decides which address bits are wired, so losing it misreads mirrors"
+        );
+        assert_eq!(
+            got[1].offset, 8,
+            "an offset of zero would read the wrong bytes"
+        );
+    }
+
+    #[test]
+    fn a_map_of_nothing_leaves_no_regions_behind() {
+        let mut host = host_with(HashMap::new(), false);
+        host.memory.push(MemoryRegion {
+            flags: 0,
+            offset: 0,
+            start: 0,
+            select: 0,
+            disconnect: 0,
+            len: 1,
+        });
+        let _active = Active::bind(&mut host);
+        assert!(unsafe { environment(SET_MEMORY_MAPS, ptr::null_mut()) });
+        assert!(
+            unsafe { with_host(|h| h.memory.is_empty()) }.unwrap(),
+            "a stale region would be read as memory the core no longer has"
+        );
+    }
+
+    #[test]
+    fn a_core_that_volunteers_achievements_is_believed() {
+        let mut host = host_with(HashMap::new(), false);
+        let _active = Active::bind(&mut host);
+        assert!(!unsafe { with_host(|h| h.achievements) }.unwrap());
+
+        let yes = true;
+        let ok =
+            unsafe { environment(SET_SUPPORT_ACHIEVEMENTS, &yes as *const bool as *mut c_void) };
+        assert!(
+            ok,
+            "answering false would say the frontend cannot, not that the core cannot"
+        );
+        assert!(unsafe { with_host(|h| h.achievements) }.unwrap());
     }
 
     #[test]

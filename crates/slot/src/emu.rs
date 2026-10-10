@@ -532,6 +532,7 @@ impl Worker {
         let mut rate = TickRate::new(Instant::now(), 0);
         let mut stalled = false;
         let mut turbo_frame = 0u32;
+        let mut told_memory = false;
         let mut transport: Option<Box<dyn LinkChannel>> = None;
         let mut cable: Option<Cable> = None;
         let mut cable_presents = 0u32;
@@ -742,6 +743,15 @@ impl Worker {
                 flush_outbound(&mut transport, &link);
                 self.publish(core.video_xrgb8888());
                 self.frame_done(served);
+                // mGBA defers describing its address space to its first frame,
+                // so asking any earlier answers nothing. Achievements are
+                // decided against that memory; a core that describes none can
+                // carry none, which is worth saying rather than leaving as a
+                // silent absence.
+                if !told_memory {
+                    told_memory = true;
+                    say_memory(core.as_ref());
+                }
 
                 since_snapshot += 1;
                 if cable.is_some()
@@ -965,6 +975,28 @@ impl Worker {
 
     fn speed(&self) -> Speed {
         Speed::from_u8(self.shared.speed.load(Ordering::Relaxed))
+    }
+}
+
+fn say_memory(core: &dyn RetroCore) {
+    let regions = core.memory_regions();
+    eprintln!(
+        "slot: memory: {} regions described, achievements {}",
+        regions.len(),
+        if core.supports_achievements() {
+            "supported"
+        } else {
+            "not offered"
+        }
+    );
+    if !crate::session::trace() {
+        return;
+    }
+    for r in &regions {
+        eprintln!(
+            "slot: memory: start {:#010x} len {:#x} select {:#010x} disconnect {:#010x} offset {:#x} flags {:#x}",
+            r.start, r.len, r.select, r.disconnect, r.offset, r.flags
+        );
     }
 }
 
