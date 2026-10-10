@@ -12,11 +12,11 @@ use slot_store::{
 };
 use slot_ui::{
     board_from, board_zoom, draw_backdrop, draw_empty_slot, draw_footer, draw_slot_name,
-    draw_sticker, ease, grown, lid_at, lid_from, lift_of, on_board, shelf_cart_at, ClockPicker,
-    Draw, FfState, GbShell, Hud, HudKind, Icon, LinkBadge, Millis, Placed, Polaroids, PowerChoice,
-    QuickMenu, QuickMenuFaces, QuickRow, QuickValue, Refusal, Shelf, SlotChrome, TexId, Toast,
-    BOARD_W, BOARD_X, CART_W, CHIP_H, CHIP_U, CHIP_V, CHIP_W, HINT_EDGE, HINT_H, HOP_LIFT,
-    SHADOW_H, SHADOW_W, SOCKET_H, SOCKET_U, SOCKET_V, SOCKET_W, TURN_PAD,
+    draw_sticker, ease, grown, lid_at, lid_from, lift_of, on_board, shelf_cart_at, wifi_alpha,
+    ClockPicker, Draw, FfState, GbShell, Hud, HudKind, Icon, LinkBadge, Millis, Placed, Polaroids,
+    PowerChoice, QuickMenu, QuickMenuFaces, QuickRow, QuickValue, Refusal, Shelf, SlotChrome,
+    TexId, Toast, WifiState, BOARD_W, BOARD_X, CART_W, CHIP_H, CHIP_U, CHIP_V, CHIP_W, HINT_EDGE,
+    HINT_H, HOP_LIFT, SHADOW_H, SHADOW_W, SOCKET_H, SOCKET_U, SOCKET_V, SOCKET_W, TURN_PAD,
 };
 
 use crate::audio::Sfx;
@@ -344,6 +344,7 @@ pub struct App {
     radio: Box<dyn RadioJobs>,
     wifi: Box<dyn WifiJobs>,
     wifi_joined: Option<bool>,
+    wifi_state: WifiState,
 }
 
 const FACE_AHEAD: i32 = 8;
@@ -380,6 +381,7 @@ impl App {
             radio: radio_jobs(),
             wifi: wifi_jobs(),
             wifi_joined: None,
+            wifi_state: WifiState::default(),
             phase: Phase::Shelf,
             shelves,
             shelf_at,
@@ -1977,6 +1979,7 @@ impl App {
                     self.battery_percent,
                     self.bolt,
                     self.shelf_clock,
+                    self.wifi_badge(),
                     out,
                 );
             }
@@ -2706,7 +2709,32 @@ impl App {
     // link, a shut lid leaves it to nobody, and the card's own setting decides
     // the rest. Asking only on a change keeps a per-frame call from spawning a
     // process a frame.
+    // The shelf shows the network at rest as well as joining: it is status
+    // chrome, and an icon that only ever appeared mid-join would be a flicker.
+    fn wifi_badge(&self) -> Option<(TexId, f32)> {
+        let face = self.hud.face(Icon::Wifi)?;
+        wifi_alpha(self.wifi_state, self.now()).map(|alpha| (face, alpha))
+    }
+
+    pub fn wifi_state(&self) -> WifiState {
+        self.wifi_state
+    }
+
     fn sync_wifi(&mut self) {
+        let was = self.wifi_state;
+        self.wifi_state = self.wifi.state();
+        // The shelf has a footer to say this in, so the corner would only
+        // double up. Over a game there is no footer, which is why the corner
+        // carries it there, and why it says so on the way out: an icon that
+        // vanished without a word leaves the player guessing.
+        let on_shelf = matches!(self.phase, Phase::Shelf);
+        self.hud.set_wifi(match on_shelf {
+            true => WifiState::Off,
+            false => self.wifi_state,
+        });
+        if !on_shelf && was == WifiState::Joining && self.wifi_state == WifiState::Up {
+            self.hud.toast(Toast::WifiConnected, self.now());
+        }
         let want =
             self.state.wifi && !matches!(self.phase, Phase::Doze { .. }) && !self.link_active();
         if self.wifi_joined == Some(want) {

@@ -45,8 +45,8 @@ pub use clock::{clock_label, date_time_text, hhmm, set_clock_hint_face, ClockPic
 pub use draw::{Draw, TexId, OUT_H, OUT_W};
 pub use footer::{draw_footer, Printed};
 pub use hud::{
-    badge_at, ff_badge, FfState, Hud, HudKind, LinkBadge, Millis, HUD_ICON_PX, HUD_INK, HUD_MS,
-    LINK_HOST_INK, LINK_JOIN_INK, PLATE_H,
+    badge_at, ff_badge, wifi_alpha, FfState, Hud, HudKind, LinkBadge, Millis, WifiState,
+    HUD_ICON_PX, HUD_INK, HUD_MS, LINK_HOST_INK, LINK_JOIN_INK, PLATE_H, PULSE_MS,
 };
 pub use icon::{badge_face, icon_box, icon_face, Badge, Icon};
 pub use link_art::{
