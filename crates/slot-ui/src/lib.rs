@@ -62,7 +62,7 @@ pub use plate::{
 pub use polaroids::{photo_face, PhotoFace, Polaroids, DOT, LEGEND, PHOTO_H, PHOTO_W};
 pub use power_menu::{menu_face, PowerChoice, MENU_PAD};
 pub use quick_menu::{
-    quick_caret_face, quick_label_face, quick_legend_faces, quick_value_face, QuickMenu,
+    quick_caret_face, quick_label_face, quick_legend_faces, quick_value_face, row_top, QuickMenu,
     QuickMenuFaces, QuickRow, QuickValue, QUICK_EDGE, QUICK_PITCH, QUICK_SPLIT, QUICK_TOP,
 };
 pub use rebuild::{rebuild_count_face, rebuild_title_face, RebuildScreen};

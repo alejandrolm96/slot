@@ -20,10 +20,11 @@ pub enum QuickRow {
     Turbo,
     Rewind,
     GbPalettes,
+    Wifi,
 }
 
 impl QuickRow {
-    pub const ALL: [QuickRow; 14] = [
+    pub const ALL: [QuickRow; 15] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -38,12 +39,14 @@ impl QuickRow {
         QuickRow::Turbo,
         QuickRow::Rewind,
         QuickRow::GbPalettes,
+        QuickRow::Wifi,
     ];
 
-    pub const MAIN: [QuickRow; 4] = [
+    pub const MAIN: [QuickRow; 5] = [
         QuickRow::Screen,
         QuickRow::Game,
         QuickRow::DateTime,
+        QuickRow::Wifi,
         QuickRow::About,
     ];
 
@@ -119,6 +122,7 @@ impl QuickRow {
             QuickRow::Turbo => "Turbo Buttons",
             QuickRow::Rewind => "Rewind",
             QuickRow::GbPalettes => "GB Palettes",
+            QuickRow::Wifi => "Wi-Fi",
         }
     }
 
@@ -355,7 +359,10 @@ impl QuickMenu<'_> {
     }
 }
 
-fn row_top(row: QuickRow) -> f32 {
+/// Where a row's band starts. Each page is centred on its own length, so this
+/// cannot be worked out from QUICK_TOP unless the page happens to be as long
+/// as MAIN.
+pub fn row_top(row: QuickRow) -> f32 {
     let top = (OUT_H as f32 - QUICK_PITCH * row.page().len() as f32) / 2.0;
     top + QUICK_PITCH * row.position() as f32
 }
