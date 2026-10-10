@@ -651,6 +651,7 @@ impl App {
             QuickRow::EjectSave => Some(QuickValue::flag(self.state.eject_save)),
             QuickRow::Turbo => Some(QuickValue::flag(self.state.turbo)),
             QuickRow::Rewind => Some(QuickValue::flag(self.state.rewind)),
+            QuickRow::Wifi => Some(QuickValue::flag(self.state.wifi)),
             QuickRow::DateTime | QuickRow::About | QuickRow::Screen | QuickRow::Game => None,
         }
     }
@@ -1341,7 +1342,8 @@ impl App {
             | QuickRow::GbaShader
             | QuickRow::GbShader
             | QuickRow::GbPalettes
-            | QuickRow::Rumble => {}
+            | QuickRow::Rumble
+            | QuickRow::Wifi => {}
         }
     }
 
@@ -1375,6 +1377,7 @@ impl App {
                 s.shader_gb = to;
             }
             QuickRow::Rumble => s.rumble = !s.rumble,
+            QuickRow::Wifi => s.wifi = !s.wifi,
             QuickRow::EjectSave => s.eject_save = !s.eject_save,
             QuickRow::Turbo => s.turbo = !s.turbo,
             QuickRow::Rewind => s.rewind = !s.rewind,

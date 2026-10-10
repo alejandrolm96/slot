@@ -119,6 +119,7 @@ fn up_and_down_move_the_bar_and_wrap_at_the_ends() {
         QuickRow::Screen,
         QuickRow::Game,
         QuickRow::DateTime,
+        QuickRow::Wifi,
         QuickRow::About,
         QuickRow::Screen,
     ] {
@@ -623,4 +624,47 @@ fn gb_palettes_flips_on_either_arrow_and_saves() {
             Some(QuickValue::flag(want))
         );
     }
+}
+
+#[test]
+fn wifi_flips_on_either_arrow_and_saves() {
+    let (d, mut a, _) = on_carousel();
+    open_at(&mut a, QuickRow::Wifi);
+    assert_eq!(
+        a.quick_value(QuickRow::Wifi),
+        Some(QuickValue::On),
+        "a fresh card comes up joined"
+    );
+    press(&mut a, Btn::Right);
+    assert_eq!(a.quick_value(QuickRow::Wifi), Some(QuickValue::Off));
+    assert!(
+        !read_slot_state(d.path()).wifi,
+        "the choice never reached the card"
+    );
+    press(&mut a, Btn::Left);
+    assert_eq!(a.quick_value(QuickRow::Wifi), Some(QuickValue::On));
+    assert!(read_slot_state(d.path()).wifi);
+}
+
+#[test]
+fn wifi_sits_on_the_front_page_rather_than_behind_a_submenu() {
+    assert!(
+        QuickRow::MAIN.contains(&QuickRow::Wifi),
+        "the network is a system setting, not a screen or gameplay one"
+    );
+    assert!(
+        !QuickRow::Wifi.opens(),
+        "it is a toggle, so pressing A must not try to open a page"
+    );
+    assert_eq!(QuickRow::Wifi.page(), &QuickRow::MAIN[..]);
+}
+
+#[test]
+fn a_card_that_was_left_off_comes_back_off() {
+    let (_d, mut a, _) = on_carousel_with(SlotState {
+        wifi: false,
+        ..Default::default()
+    });
+    open_at(&mut a, QuickRow::Wifi);
+    assert_eq!(a.quick_value(QuickRow::Wifi), Some(QuickValue::Off));
 }

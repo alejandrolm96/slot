@@ -293,3 +293,53 @@ mod shown {
         );
     }
 }
+
+mod toggled {
+    use super::*;
+    use slot_input::{Action, Btn};
+    use slot_ui::QuickRow;
+
+    fn press(a: &mut slot::app::App, btn: Btn) {
+        a.apply(Action::GbaDown(btn));
+        a.apply(Action::GbaUp(btn));
+    }
+
+    fn at_the_wifi_row(a: &mut slot::app::App) {
+        a.apply(Action::QuickMenu);
+        for _ in 0..QuickRow::Wifi.position() {
+            press(a, Btn::Down);
+        }
+        assert_eq!(a.quick_menu(), Some(QuickRow::Wifi));
+    }
+
+    #[test]
+    fn turning_it_off_in_the_menu_lets_the_network_go() {
+        let d = tmp_root_with_carts(&["Emerald", "Ruby"]);
+        let mut a = boot(d.path());
+        let log = watched(&mut a);
+        a.update(DT);
+        assert_eq!(log.jobs(), vec![WifiJob::Up]);
+        at_the_wifi_row(&mut a);
+        press(&mut a, Btn::Right);
+        a.update(DT);
+        assert_eq!(
+            log.jobs(),
+            vec![WifiJob::Up, WifiJob::Down],
+            "the setting changed but the radio stayed on"
+        );
+    }
+
+    #[test]
+    fn turning_it_back_on_joins_again() {
+        let d = tmp_root_with_carts(&["Emerald", "Ruby"]);
+        let mut a = boot(d.path());
+        let log = watched(&mut a);
+        a.update(DT);
+        at_the_wifi_row(&mut a);
+        press(&mut a, Btn::Right);
+        a.update(DT);
+        press(&mut a, Btn::Left);
+        a.update(DT);
+        assert_eq!(log.jobs(), vec![WifiJob::Up, WifiJob::Down, WifiJob::Up]);
+    }
+}
