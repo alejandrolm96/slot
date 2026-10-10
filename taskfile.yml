@@ -5,6 +5,8 @@ vars:
   GPSP_HOST: vendor/gpsp_libretro.dylib
   MGBA_COMMIT: e31759b24e7a4e3899285ff720d7b573ac328ae7
   GPSP_COMMIT: 7b2dd37394e2822110cacef321e9bb291a305b77
+  RCHEEVOS_SRC: vendor/rcheevos
+  RCHEEVOS_COMMIT: 683197d8dc92555a51e8280a4123d071ed66bff3
 
 tasks:
   default:
@@ -114,6 +116,42 @@ tasks:
     cmds:
       - rm -f {{.CORE}} {{.CORE}}.meta {{.GPSP_HOST}}
       - task: core
+
+  cheevos:src:
+    desc: >-
+      Put the pinned rcheevos source in vendor/. slot-cheevos' build.rs compiles it with cc,
+      so there is nothing to build here and nothing to vendor per target
+    status:
+      - test "$(cat {{.RCHEEVOS_SRC}}/.slot-stamp 2>/dev/null)" = "$(sh deps/rcheevos/build.sh stamp {{.RCHEEVOS_COMMIT}})"
+    cmds:
+      - sh deps/rcheevos/build.sh fetch {{.RCHEEVOS_COMMIT}} {{.RCHEEVOS_SRC}}
+      - 'echo "fetched {{.RCHEEVOS_SRC}} at {{.RCHEEVOS_COMMIT}}"'
+
+  cheevos:update:
+    desc: Re-fetch the pinned rcheevos source even if it is already there
+    cmds:
+      - rm -rf {{.RCHEEVOS_SRC}}
+      - task: cheevos:src
+
+  cheevos:device:
+    desc: >-
+      Compile slot-cheevos for the H700. Nothing else builds its C for aarch64, so until
+      slot depends on it this is the only thing that would notice a break
+    deps: [cheevos:src]
+    cmds:
+      - task: device:sh
+        vars:
+          CMD: >-
+            cargo build --profile device --target-dir target-device -p slot-cheevos
+      - task: device:sh
+        vars:
+          CMD: >-
+            set -eu;
+            a="$(find target-device -name librcheevos.a | head -1)";
+            test -n "$a" || { echo "no librcheevos.a was produced" >&2; exit 1; };
+            o="$(ar t "$a" | grep rc_libretro)";
+            cd "$(mktemp -d)" && ar x "/src/$a" "$o" && file "$o" | grep -q aarch64
+      - 'echo "built slot-cheevos for aarch64"'
 
   icons:
     desc: Re-fetch the nerd font symbols used by the HUD
